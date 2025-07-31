@@ -150,6 +150,36 @@ if __name__ == "__main__":
     print(f"🤖 向Agent发送查询: {test_query}")
     print("=" * 60)
     
+    # 使用 stream 模式实时查看思考过程
+    print("🧠 大模型思考过程:")
+    print("-" * 40)
+    
+    for chunk in agent.stream({
+        "messages": [{"role": "user", "content": test_query}]
+    }):
+        # 打印每一步的思考过程
+        for node_name, node_data in chunk.items():
+            if "messages" in node_data:
+                latest_message = node_data["messages"][-1]
+                
+                if hasattr(latest_message, 'type'):
+                    if latest_message.type == "ai":
+                        print(f"🤖 [{node_name}] AI思考: {latest_message.content}")
+                        
+                        # 如果有工具调用，显示工具调用信息
+                        if hasattr(latest_message, 'tool_calls') and latest_message.tool_calls:
+                            print(f"🔧 [{node_name}] 准备调用工具:")
+                            for tool_call in latest_message.tool_calls:
+                                print(f"   - 工具: {tool_call['name']}")
+                                print(f"   - 参数: {tool_call['args']}")
+                                
+                    elif latest_message.type == "tool":
+                        print(f"⚡ [{node_name}] 工具执行结果:")
+                        print(f"   {latest_message.content[:200]}...")  # 只显示前200字符
+                        
+                print("-" * 40)
+    
+    print("\n✅ 思考过程完成")
     # 调用Agent
     response = agent.invoke({
         "messages": [{"role": "user", "content": test_query}]
