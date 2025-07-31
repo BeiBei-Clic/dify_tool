@@ -1,180 +1,140 @@
-"""
-LLM with Tool - 使用 LangChain 让大模型调用 Dify 知识库工具
-
-这个程序演示了如何使用 LangChain 框架让大语言模型调用自定义工具。
-参考 LangChain 官方文档的 use context 模式。
-"""
-
-from langgraph.prebuilt import create_react_agent
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from langchain_core.tools import tool
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
-import os
-from dotenv import load_dotenv
+import requests
 import json
-from datetime import datetime
+from typing import List, Dict, Any
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
 
-# 加载 .env 文件中的环境变量
-load_dotenv()
+# Dify 配置常量
+DIFY_BASE_URL = 'http://localhost'
+DIFY_DATASET_ID = 'd29a3ad4-cbaa-4adf-98b9-94d2d2da8660'#上下册知识库id
+DIFY_API_KEY = 'dataset-nn9K2CMUXa9rSKLlNpMwmHU7'
 
-# 导入 dify2 中定义的知识库检索工具
-from dify2 import dify_retrieve
-
-# 从 .env 文件获取 OpenRouter 配置
-openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-
-def print_beautiful_header():
-    """打印美化的头部信息"""
-    print("🤖 " + "=" * 60)
-    print("🌟 LLM with Dify Tool - 智能农业知识助手")
-    print("🤖 " + "=" * 60)
-    print(f"🔧 使用 OpenRouter API")
-    print(f"📡 Base URL: {openrouter_base_url}")
-    print("🤖 " + "=" * 60)
-
-def print_user_question(question):
-    """美化打印用户问题"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"\n🙋 [{timestamp}] 用户提问:")
-    print(f"   💬 {question}")
-    print("   " + "─" * 50)
-
-def print_tool_call_info(tool_calls):
-    """美化打印工具调用信息"""
-    if tool_calls:
-        print(f"\n🔧 工具调用:")
-        for i, tool_call in enumerate(tool_calls, 1):
-            tool_name = tool_call.get('name', 'unknown')
-            tool_args = tool_call.get('args', {})
-            print(f"   📋 工具 {i}: {tool_name}")
-            print(f"   📝 参数: {tool_args}")
-        print("   ⏳ 正在执行工具...")
-
-def print_tool_result(content):
-    """美化打印工具执行结果"""
-    print(f"\n📊 工具执行结果:")
-    print("   " + "─" * 45)
+@tool
+def dify_retrieve(query: str, user_id: str = "1", top_k: int = 5) -> str:
+    """
+    从 Dify 知识库中检索相关信息。
     
-    # 格式化工具结果
-    lines = content.split('\n')
-    for line in lines:
-        if line.strip():
-            if line.startswith('📝 查询:'):
-                print(f"   🔍 {line}")
-            elif line.startswith('📊 检索到'):
-                print(f"   📈 {line}")
-            elif line.startswith(('1.', '2.', '3.', '4.', '5.')):
-                print(f"   📄 {line}")
-            else:
-                print(f"   {line}")
-    print("   " + "─" * 45)
-
-def print_final_answer(content):
-    """美化打印最终回答"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"\n🤖 [{timestamp}] 智能助手回答:")
-    print("   " + "═" * 50)
+    这个工具可以根据用户的查询从 Dify 知识库中检索相关的文档片段。
+    适用于需要获取特定领域知识、文档内容或回答基于知识库的问题。
     
-    # 格式化回答内容
-    paragraphs = content.split('\n\n')
-    for i, paragraph in enumerate(paragraphs):
-        if paragraph.strip():
-            lines = paragraph.split('\n')
-            for line in lines:
-                if line.strip():
-                    # 检测列表项
-                    if line.strip().startswith(('1.', '2.', '3.', '4.', '5.', '*', '-')):
-                        print(f"   📌 {line.strip()}")
-                    # 检测标题
-                    elif '**' in line:
-                        title = line.strip().replace('**', '')
-                        print(f"   🎯 {title}")
-                    else:
-                        print(f"   {line}")
+    Args:
+        query (str): 要检索的查询文本，例如 "生态农业的发展趋势"
+        user_id (str, optional): 用户标识符，用于 Dify 统计。默认为 "1"
+        top_k (int, optional): 返回的最大结果数量。默认为 5
+        
+    Returns:
+        str: 格式化的检索结果，包含相关文档片段的内容
+        
+    Example:
+        >>> result = dify_retrieve("生态农业")
+        >>> print(result)
+        检索到 3 条相关记录:
+        1. [位置: 14] 生态农业是一种可持续的农业发展模式...
+        2. [位置: 25] 生态农业注重环境保护和资源循环利用...
+        3. [位置: 42] 现代生态农业技术包括有机种植、生物防治...
+    """
+    
+    # 构建 API 端点 URL
+    url = f'{DIFY_BASE_URL}/v1/datasets/{DIFY_DATASET_ID}/retrieve'
+    
+    # 设置请求头
+    headers = {
+        'Authorization': f'Bearer {DIFY_API_KEY}',
+        'Content-Type': 'application/json',
+    }
+    
+    # 构建请求数据
+    data = {
+        "inputs": {},
+        "query": query,
+        "response_mode": "blocking",
+        "conversation_id": "",
+        "user": user_id,
+        "retrieval_setting": {
+            "top_k": top_k
+        }
+    }
+    
+    try:
+        # 发送 POST 请求到 Dify API
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        
+        # 检查响应状态码
+        if response.status_code == 200:
+            try:
+                # 解析 JSON 响应
+                json_response = response.json()
+                
+                # 格式化检索结果
+                return _format_retrieve_results(json_response, query)
+                
+            except json.JSONDecodeError:
+                return f"❌ 解析响应失败：响应不是有效的 JSON 格式\n原始响应: {response.text[:500]}"
+                
+        else:
+            return f"❌ 请求失败，状态码: {response.status_code}\n错误信息: {response.text[:500]}"
             
-            # 段落间添加空行
-            if i < len(paragraphs) - 1:
-                print()
-    
-    print("   " + "═" * 50)
+    except requests.exceptions.ConnectionError:
+        return "❌ 连接错误：无法连接到 Dify 服务器。请确保服务器正在运行且网络连接正常。"
+    except requests.exceptions.Timeout:
+        return "❌ 请求超时：Dify 服务器响应时间过长，请稍后重试。"
+    except requests.exceptions.RequestException as e:
+        return f"❌ 请求异常: {str(e)}"
 
-def print_summary(messages):
-    """打印对话总结"""
-    tool_calls_count = 0
-    for msg in messages:
-        if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
-            tool_calls_count += len(msg.tool_calls)
-    
-    print(f"\n💡 对话总结:")
-    print(f"   ✅ 问题已成功处理")
-    print(f"   🔧 工具调用次数: {tool_calls_count}")
-    print(f"   🤖 已生成智能回答")
-    print("   " + "─" * 30)
 
-def beautify_result(result):
-    """美化显示结果"""
-    if 'messages' in result:
-        messages = result['messages']
-        
-        # 找到用户问题
-        user_question = None
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                user_question = msg.content
-                break
-        
-        if user_question:
-            print_user_question(user_question)
-        
-        # 处理每条消息
-        for msg in messages:
-            if isinstance(msg, AIMessage):
-                # 检查是否有工具调用
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    print_tool_call_info(msg.tool_calls)
-                # 检查是否有最终回答
-                elif msg.content and msg.content.strip():
-                    print_final_answer(msg.content)
-            
-            elif isinstance(msg, ToolMessage):
-                # 显示工具执行结果
-                print_tool_result(msg.content)
-        
-        # 打印总结
-        print_summary(messages)
+def _format_retrieve_results(response_data: Dict[str, Any], original_query: str) -> str:
+    """
+    格式化 Dify 检索结果为易读的字符串格式
     
-    else:
-        # 如果结果格式不是预期的，直接打印
-        print(f"\n📋 原始结果:")
+    Args:
+        response_data: Dify API 返回的 JSON 数据
+        original_query: 原始查询文本
+        
+    Returns:
+        str: 格式化后的结果字符串
+    """
+    
+    # 获取查询内容
+    query_content = response_data.get('query', {}).get('content', original_query)
+    
+    # 获取检索记录
+    records = response_data.get('records', [])
+    
+    if not records:
+        return f"📝 查询: {query_content}\n❌ 未找到相关记录，请尝试调整查询关键词。"
+    
+    # 构建结果字符串
+    result_lines = [
+        f"📝 查询: {query_content}",
+        f"📊 检索到 {len(records)} 条相关记录:\n"
+    ]
+    
+    for i, record in enumerate(records, 1):
+        segment = record.get('segment', {})
+        position = segment.get('position', '未知位置')
+        content = segment.get('content', '无内容')
+        
+        # 清理内容：移除多余的换行符和空格
+        cleaned_content = ' '.join(content.split())       
+        result_lines.append(f"{i}. [位置: {position}] {cleaned_content}")
+    
+    return "\n".join(result_lines)
+
+if __name__ == "__main__":
+    # 运行测试
+    """测试 dify_retrieve 工具函数"""
+    print("🧪 测试 dify_retrieve 工具函数...")
+    
+    # 测试查询
+    test_queries = [
+        "生态农业",
+    ]
+    
+    for query in test_queries:
+        print(f"\n{'='*60}")
+        print(f"测试查询: {query}")
+        print(f"{'='*60}")
+        
+        # 使用 invoke 方法而不是直接调用，避免弃用警告
+        result = dify_retrieve.invoke({"query": query})
         print(result)
-
-# 打印美化的头部
-print_beautiful_header()
-
-# 创建 ChatOpenAI 实例，配置 OpenRouter
-llm = ChatOpenAI(
-    model="google/gemini-2.5-flash",
-    temperature=0.1,
-    api_key=openrouter_api_key,
-    base_url=openrouter_base_url,
-)
-    
-agent = create_react_agent(
-    model=llm,
-    tools=[dify_retrieve]
-)
-
-if __name__=="__main__":
-    # 可以修改这里的问题进行测试
-    question = "如何实现乡村振兴？"
-    
-    print(f"\n🧠 大模型思考中...")
-    print(f"   🔍 分析问题并决定是否需要调用工具...")
-    
-    result = agent.invoke({"messages": [{"role": "user", "content": question}]})
-    
-    # 美化显示结果
-    beautify_result(result)

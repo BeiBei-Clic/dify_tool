@@ -114,12 +114,7 @@ def _format_retrieve_results(response_data: Dict[str, Any], original_query: str)
         content = segment.get('content', '无内容')
         
         # 清理内容：移除多余的换行符和空格
-        cleaned_content = ' '.join(content.split())
-        
-        # 限制内容长度，避免输出过长
-        if len(cleaned_content) > 300:
-            cleaned_content = cleaned_content[:300] + "..."
-        
+        cleaned_content = ' '.join(content.split())       
         result_lines.append(f"{i}. [位置: {position}] {cleaned_content}")
     
     return "\n".join(result_lines)
