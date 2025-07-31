@@ -1,13 +1,21 @@
+import os
 import requests
 import json
 from typing import List, Dict, Any
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from dotenv import load_dotenv
 
-# Dify 配置常量
-DIFY_BASE_URL = 'http://localhost'
-DIFY_DATASET_ID = 'd29a3ad4-cbaa-4adf-98b9-94d2d2da8660'#上下册知识库id
-DIFY_API_KEY = 'dataset-nn9K2CMUXa9rSKLlNpMwmHU7'
+# 加载.env文件
+load_dotenv()
+
+# 从环境变量读取配置
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
+DIFY_BASE_URL = os.getenv('DIFY_BASE_URL', 'http://localhost')
+DIFY_DATASET_ID = os.getenv('DIFY_DATASET_ID')
+DIFY_API_KEY = os.getenv('DIFY_API_KEY')
 
 @tool
 def dify_retrieve(query: str, user_id: str = "1", top_k: int = 5) -> str:
@@ -120,21 +128,58 @@ def _format_retrieve_results(response_data: Dict[str, Any], original_query: str)
     
     return "\n".join(result_lines)
 
+
 if __name__ == "__main__":
-    # 运行测试
-    """测试 dify_retrieve 工具函数"""
-    print("🧪 测试 dify_retrieve 工具函数...")
+    # 创建LLM实例
+    llm = ChatOpenAI(
+        model="google/gemini-2.5-flash",
+        api_key=OPENROUTER_API_KEY,
+        base_url=OPENROUTER_BASE_URL,
+        temperature=0.7
+    )
+    
+    # 创建ReAct Agent
+    agent = create_react_agent(
+        model=llm,
+        tools=[dify_retrieve],
+        prompt="你是一个有用的AI助手，可以使用工具来检索信息并回答用户问题。请基于检索到的信息给出详细、有用的回答。"
+    )
     
     # 测试查询
-    test_queries = [
-        "生态农业",
-    ]
+    test_query = "请帮我查询生态农业相关的信息"
+    print(f"🤖 向Agent发送查询: {test_query}")
+    print("=" * 60)
     
-    for query in test_queries:
-        print(f"\n{'='*60}")
-        print(f"测试查询: {query}")
-        print(f"{'='*60}")
-        
-        # 使用 invoke 方法而不是直接调用，避免弃用警告
-        result = dify_retrieve.invoke({"query": query})
-        print(result)
+    # 调用Agent
+    response = agent.invoke({
+        "messages": [{"role": "user", "content": test_query}]
+    })
+    
+    print("📋 完整对话过程:")
+    print("-" * 40)
+    
+    # 遍历所有消息，展示完整的对话流程
+    for i, message in enumerate(response["messages"], 1):
+        if hasattr(message, 'content') and hasattr(message, 'type'):
+            if message.type == "human":
+                print(f"👤 用户 ({i}): {message.content}")
+            elif message.type == "ai":
+                print(f"🤖 AI ({i}): {message.content}")
+                # 如果有工具调用，显示工具调用信息
+                if hasattr(message, 'tool_calls') and message.tool_calls:
+                    print(f"🔧 工具调用: {len(message.tool_calls)} 个")
+                    for tool_call in message.tool_calls:
+                        print(f"   - 工具: {tool_call['name']}")
+                        print(f"   - 参数: {tool_call['args']}")
+            elif message.type == "tool":
+                print(f"⚡ 工具结果 ({i}):")
+                print(f"   {message.content}")
+        print("-" * 40)
+    
+    # 提取最终回答
+    final_message = response["messages"][-1]
+    if hasattr(final_message, 'content'):
+        print("\n🎯 最终回答:")
+        print(final_message.content)
+    else:
+        print("\n⚠️ 未找到最终回答")
