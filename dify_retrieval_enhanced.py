@@ -1,6 +1,7 @@
 import requests
 import json
 from typing import List, Dict, Any, Optional
+from langchain_core.tools import tool
 
 # Dify 配置常量
 DIFY_BASE_URL = 'http://localhost'
@@ -33,7 +34,6 @@ def retrieve_from_abstract_dataset(query: str, top_k: int = 5) -> Dict[str, Any]
 
 def get_document_by_case_id(case_id: str) -> Optional[str]:
     """根据case_id从full text dataset中获取完整文档内容"""
-    # 首先获取所有文档列表
     url = f'{DIFY_BASE_URL}/v1/datasets/{FULL_TEXT_DATASET_ID}/documents'
     headers = {
         'Authorization': f'Bearer {DIFY_API_KEY}',
@@ -47,7 +47,6 @@ def get_document_by_case_id(case_id: str) -> Optional[str]:
     documents_data = response.json()
     documents = documents_data.get('data', [])
     
-    # 查找匹配case_id的文档
     target_document_id = None
     for doc in documents:
         doc_metadata = doc.get('doc_metadata', [])
@@ -61,7 +60,6 @@ def get_document_by_case_id(case_id: str) -> Optional[str]:
     if not target_document_id:
         return None
     
-    # 获取文档的所有segments
     segments_url = f'{DIFY_BASE_URL}/v1/datasets/{FULL_TEXT_DATASET_ID}/documents/{target_document_id}/segments'
     segments_response = requests.get(segments_url, headers=headers, timeout=30)
     
@@ -71,7 +69,6 @@ def get_document_by_case_id(case_id: str) -> Optional[str]:
     segments_data = segments_response.json()
     segments = segments_data.get('data', [])
     
-    # 合并所有segment的内容
     full_content = []
     for segment in sorted(segments, key=lambda x: x.get('position', 0)):
         content = segment.get('content', '')
@@ -80,32 +77,49 @@ def get_document_by_case_id(case_id: str) -> Optional[str]:
     
     return '\n\n'.join(full_content)
 
+@tool
 def enhanced_retrieve(query: str, top_k: int = 3) -> str:
     """
-    增强检索流程：
-    1. 从abstract dataset中检索
-    2. 提取case_id
-    3. 从full text dataset中获取完整文档
+    从 Dify 知识库中进行增强检索，获取完整文档内容。
+    
+    这个工具实现两阶段检索：
+    1. 首先从摘要数据集中检索相关内容
+    2. 然后根据case_id从完整文档数据集中获取完整文档内容
+    
+    适用于需要获取完整案例文档、详细信息或深度分析的场景。
+    
+    Args:
+        query (str): 要检索的查询文本，例如 "朴愿有机农耕科普园"
+        top_k (int, optional): 返回的最大结果数量。默认为 3
+        
+    Returns:
+        str: 格式化的检索结果，包含完整文档内容
+        
+    Example:
+        >>> result = enhanced_retrieve("生态农业案例")
+        >>> print(result)
+        📊 检索结果总结:
+        - 查询: 生态农业案例
+        - Abstract检索到: 2 条记录
+        - 获取完整文档: 2 个
+        
+        📚 完整文档内容:
+        文档 1: Case ID = 12345
+        完整内容: [完整的案例文档内容...]
     """
-    print(f"🔍 开始增强检索: {query}")
-    print("="*60)
     
     # 步骤1: 从abstract dataset检索
-    print("📝 步骤1: 从abstract dataset检索相关内容...")
     abstract_results = retrieve_from_abstract_dataset(query, top_k)
     
     records = abstract_results.get('records', [])
     if not records:
         return f"❌ 在abstract dataset中未找到相关内容"
     
-    print(f"✅ 在abstract dataset中找到 {len(records)} 条相关记录")
-    
     # 步骤2: 提取case_id并获取完整文档
     full_documents = []
     processed_case_ids = set()
     
-    for i, record in enumerate(records, 1):
-        # 修正：case_id在document.doc_metadata中，不是在segment.metadata中
+    for record in records:
         document = record.get('segment', {}).get('document', {})
         doc_metadata = document.get('doc_metadata', {})
         case_id = doc_metadata.get('case_id')
@@ -115,7 +129,6 @@ def enhanced_retrieve(query: str, top_k: int = 3) -> str:
             
         processed_case_ids.add(case_id)
         
-        print(f"📄 步骤2.{i}: 获取case_id={case_id}的完整文档...")
         full_content = get_document_by_case_id(case_id)
         
         if full_content:
@@ -124,9 +137,6 @@ def enhanced_retrieve(query: str, top_k: int = 3) -> str:
                 'content': full_content,
                 'abstract_snippet': record.get('segment', {}).get('content', '')[:200] + '...'
             })
-            print(f"✅ 成功获取case_id={case_id}的完整文档 ({len(full_content)}字符)")
-        else:
-            print(f"❌ 未能获取case_id={case_id}的完整文档")
     
     # 步骤3: 格式化输出结果
     if not full_documents:
@@ -158,5 +168,5 @@ if __name__ == "__main__":
     test_query = "朴愿有机农耕科普园"
     print(f"测试查询: {test_query}")
     print(f"{'='*80}")
-    result = enhanced_retrieve(test_query)
+    result = enhanced_retrieve.invoke({"query": test_query})
     print(result)

@@ -9,6 +9,7 @@ from langgraph.prebuilt import create_react_agent
 from dotenv import load_dotenv
 
 from dify2 import dify_retrieve
+from dify_retrieval_enhanced import enhanced_retrieve
 
 # 加载.env文件
 load_dotenv()
@@ -32,7 +33,7 @@ async def stream_with_token_output():
     # 创建ReAct Agent
     agent = create_react_agent(
         model=llm,
-        tools=[dify_retrieve],
+        tools=[enhanced_retrieve],
         prompt="你是一个有用的AI助手，可以使用工具来检索信息并回答用户问题。请基于检索到的信息给出详细、有用的回答。"
     )
     
